@@ -1,5 +1,8 @@
 import os
+import secrets
+import tempfile
 from pathlib import Path
+from typing import Literal
 
 from loguru import logger
 from pydantic import Field
@@ -7,11 +10,18 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from kabel.internal.common.io import get_data_dir
 
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+_AUTO_SECRET_KEY_FILE = ".password_secret_key"
+SecretKeySource = Literal["configured", "loaded", "generated"]
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="",
-        env_file=".env",
+        # Load the backend's .env regardless of the directory from which the
+        # CLI is launched. A .env in the current working directory remains the
+        # higher-priority override for installed/deployed instances.
+        env_file=(_PROJECT_ROOT / ".env", ".env"),
         env_file_encoding="utf-8",
         case_sensitive=True,
     )
@@ -84,7 +94,63 @@ class Settings(BaseSettings):
         )
 
 
-
 settings = Settings()
 os.makedirs(settings.MEDIA_ROOT, exist_ok=True)
 logger.info("Database and media directory: {}", settings.BASE_DATA_DIR)
+
+
+def ensure_password_secret_key() -> SecretKeySource:
+    """Ensure an unconfigured secret key remains stable across restarts.
+
+    Production deployments should set ``PASSWORD_SECRET_KEY`` explicitly. For
+    local installations that do not, persist the generated fallback alongside
+    the application's data instead of replacing it on every process start.
+    """
+    if settings.PASSWORD_SECRET_KEY:
+        return "configured"
+
+    data_dir = Path(settings.BASE_DATA_DIR)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    key_path = data_dir / _AUTO_SECRET_KEY_FILE
+
+    if key_path.exists():
+        secret_key = key_path.read_text(encoding="utf-8").strip()
+        if not secret_key:
+            raise RuntimeError(
+                f"Auto-generated secret key file is empty: {key_path}"
+            )
+        settings.PASSWORD_SECRET_KEY = secret_key
+        return "loaded"
+
+    secret_key = secrets.token_hex(32)
+    temp_path: Path | None = None
+    try:
+        fd, temp_name = tempfile.mkstemp(
+            prefix=f"{_AUTO_SECRET_KEY_FILE}.",
+            dir=data_dir,
+        )
+        temp_path = Path(temp_name)
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as secret_file:
+            secret_file.write(secret_key)
+            secret_file.flush()
+            os.fsync(secret_file.fileno())
+
+        try:
+            # A hard link publishes the fully-written file atomically and lets
+            # concurrent workers agree on whichever key was created first.
+            os.link(temp_path, key_path)
+        except FileExistsError:
+            secret_key = key_path.read_text(encoding="utf-8").strip()
+            if not secret_key:
+                raise RuntimeError(
+                    f"Auto-generated secret key file is empty: {key_path}"
+                )
+            settings.PASSWORD_SECRET_KEY = secret_key
+            return "loaded"
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+
+    settings.PASSWORD_SECRET_KEY = secret_key
+    return "generated"

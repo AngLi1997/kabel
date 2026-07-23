@@ -12,7 +12,7 @@ from kabel.internal.adapter.ws import add_ws_router
 from kabel.internal.middleware import add_middleware
 from kabel.internal.common.logger import init_logging
 from kabel.internal.common.db import init_tables
-from kabel.internal.common.config import settings
+from kabel.internal.common.config import ensure_password_secret_key, settings
 from kabel.internal.common.error_code import add_exception_handler
 from kabel.alembic_kabel.run_migrate import run_db_migrations
 from kabel.scripts.migrate_to_mysql import migrate_to_mysql
@@ -101,10 +101,18 @@ app = FastAPI(
     openapi_tags=tags_metadata,
 )
 
-if not settings.PASSWORD_SECRET_KEY:
-    import secrets
-    settings.PASSWORD_SECRET_KEY = secrets.token_hex(32)
-    logger.warning("PASSWORD_SECRET_KEY not set, using auto-generated key. Set it in .env for production.")
+secret_key_source = ensure_password_secret_key()
+if secret_key_source == "generated":
+    logger.warning(
+        "PASSWORD_SECRET_KEY not set; generated a persistent local key. "
+        "Set it explicitly in .env for production."
+    )
+elif secret_key_source == "loaded":
+    logger.warning(
+        "PASSWORD_SECRET_KEY not set; using the persistent local "
+        "fallback key. "
+        "Set it explicitly in .env for production."
+    )
 
 init_logging()
 init_tables()
