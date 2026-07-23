@@ -32,6 +32,14 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     MEDIA_HOST: str = f"{SCHEME}://{HOST}:{PORT}"
 
+    # Keep a single worker until WebSocket presence and broadcasts are moved
+    # to a shared backend such as Redis. Multiple workers would each maintain
+    # an incomplete, process-local view of collaborators.
+    UVICORN_LIMIT_CONCURRENCY: int = Field(default=200, ge=20)
+    UVICORN_BACKLOG: int = Field(default=2048, ge=128)
+    UVICORN_TIMEOUT_KEEP_ALIVE: int = Field(default=5, ge=1)
+    UVICORN_ACCESS_LOG: bool = False
+
     BASE_DATA_DIR: str = get_data_dir()
     MEDIA_ROOT: Path = Path(BASE_DATA_DIR).joinpath("media")
     UPLOAD_DIR: str = "upload"
@@ -67,12 +75,19 @@ class Settings(BaseSettings):
 
     DATABASE_URL: str = Field(
         default="mysql+pymysql://root:root@localhost:3306/kabel",
-        description="Database connection URL. Supports SQLite and MySQL."
+        description="Database connection URL. Supports SQLite and MySQL.",
     )
+    DB_POOL_SIZE: int = Field(default=20, ge=1)
+    DB_MAX_OVERFLOW: int = Field(default=10, ge=0)
+    DB_POOL_TIMEOUT_SECONDS: int = Field(default=10, ge=1)
+    DB_POOL_RECYCLE_SECONDS: int = Field(default=1800, ge=60)
 
     PASSWORD_SECRET_KEY: str = Field(
         default="",
-        description="JWT secret key. Generate with: openssl rand -hex 32. MUST be set in production."
+        description=(
+            "JWT secret key. Generate with: openssl rand -hex 32. "
+            "MUST be set in production."
+        ),
     )
 
     TOKEN_GENERATE_ALGORITHM: str = "HS256"
@@ -88,10 +103,7 @@ class Settings(BaseSettings):
     @property
     def need_migration_to_mysql(self) -> bool:
         sqlite_path = Path(self.BASE_DATA_DIR) / "kabel.sqlite"
-        return (
-            self.DATABASE_URL.startswith('mysql') and 
-            sqlite_path.exists()
-        )
+        return self.DATABASE_URL.startswith("mysql") and sqlite_path.exists()
 
 
 settings = Settings()
@@ -116,9 +128,7 @@ def ensure_password_secret_key() -> SecretKeySource:
     if key_path.exists():
         secret_key = key_path.read_text(encoding="utf-8").strip()
         if not secret_key:
-            raise RuntimeError(
-                f"Auto-generated secret key file is empty: {key_path}"
-            )
+            raise RuntimeError(f"Auto-generated secret key file is empty: {key_path}")
         settings.PASSWORD_SECRET_KEY = secret_key
         return "loaded"
 

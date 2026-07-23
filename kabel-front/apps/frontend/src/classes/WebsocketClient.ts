@@ -10,6 +10,7 @@ export default class WebSocketClient {
   public handlers: Map<string, ((data?: any) => void)[]> = new Map();
   public ws: WebSocket | null = null;
   private shouldReconnect: boolean = true;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(url: string, options = {}) {
     this.url = url;
@@ -25,6 +26,10 @@ export default class WebSocketClient {
   }
 
   public connect() {
+    if (!this.shouldReconnect) {
+      return;
+    }
+
     this.shouldReconnect = true;
     this.ws = new WebSocket(this.url);
     this._setupEventHandlers();
@@ -32,8 +37,13 @@ export default class WebSocketClient {
 
   public disconnect() {
     this.shouldReconnect = false;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     if (this.ws) {
       this.ws.close();
+      this.ws = null;
     }
   }
 
@@ -54,8 +64,12 @@ export default class WebSocketClient {
     };
 
     this.ws.onmessage = (event) => {
-      const message = JSON.parse(event.data);
-      this.emit(message.type, message.data);
+      try {
+        const message = JSON.parse(event.data);
+        this.emit(message.type, message.data);
+      } catch (error) {
+        this.emit('error', error);
+      }
     };
 
     this.ws.onerror = (error) => {
@@ -72,7 +86,10 @@ export default class WebSocketClient {
   public reconnect() {
     if (this.reconnectAttempts < this.options.maxReconnectAttempts) {
       this.reconnectAttempts++;
-      setTimeout(() => this.connect(), this.options.reconnectInterval);
+      this.reconnectTimer = setTimeout(() => {
+        this.reconnectTimer = null;
+        this.connect();
+      }, this.options.reconnectInterval);
     }
   }
 

@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Dict, List, Union, Tuple
+from typing import Any, Dict, List, Tuple
 
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
@@ -8,7 +8,9 @@ from fastapi.encoders import jsonable_encoder
 from kabel.internal.domain.models.pre_annotation import TaskPreAnnotation
 
 
-def batch(db: Session, pre_annotations: List[TaskPreAnnotation]) -> List[TaskPreAnnotation]:
+def batch(
+    db: Session, pre_annotations: List[TaskPreAnnotation]
+) -> List[TaskPreAnnotation]:
     db.bulk_save_objects(pre_annotations, return_defaults=True)
     return pre_annotations
 
@@ -32,10 +34,15 @@ def list_by(
         query_filter.append(TaskPreAnnotation.id > after)
     if task_id:
         query_filter.append(TaskPreAnnotation.task_id == task_id)
-        
+
     if sample_name:
-        query_filter.append(or_(TaskPreAnnotation.sample_name == sample_name, TaskPreAnnotation.sample_name == sample_name[9:]))
-        
+        query_filter.append(
+            or_(
+                TaskPreAnnotation.sample_name == sample_name,
+                TaskPreAnnotation.sample_name == sample_name[9:],
+            )
+        )
+
     query = db.query(TaskPreAnnotation).filter(*query_filter)
 
     # default order by id, before need select last items
@@ -43,62 +50,76 @@ def list_by(
         query = query.order_by(TaskPreAnnotation.id.desc())
     else:
         query = query.order_by(TaskPreAnnotation.id.asc())
-    
+
     count = query.count()
-    
-    results = (
-        query.offset(offset=page * size if page else 0)
-        .limit(limit=size)
-        .all()
-    )
-    
+
+    results = query.offset(offset=page * size if page else 0).limit(limit=size).all()
+
     if sorting:
         field, order = sorting.split(":")
         if order == "desc":
             results = sorted(results, key=lambda x: getattr(x, field), reverse=True)
         else:
             results = sorted(results, key=lambda x: getattr(x, field))
-    
+
     if before:
         results.reverse()
-        
+
     return results, count
 
-def list_by_task_id_and_owner_id_lightweight(db: Session, task_id: int, owner_id: int) -> List[Dict[str, Any]]:
-    pre_annotations = db.query(
-        TaskPreAnnotation.file_id,
-        TaskPreAnnotation.sample_name
-    ).filter(
-        TaskPreAnnotation.task_id == task_id,
-        TaskPreAnnotation.deleted_at == None,
-        TaskPreAnnotation.created_by == owner_id
-    ).all()
+
+def list_by_task_id_and_owner_id_lightweight(
+    db: Session, task_id: int, owner_id: int
+) -> List[Dict[str, Any]]:
+    pre_annotations = (
+        db.query(TaskPreAnnotation.file_id, TaskPreAnnotation.sample_name)
+        .filter(
+            TaskPreAnnotation.task_id == task_id,
+            TaskPreAnnotation.deleted_at == None,
+            TaskPreAnnotation.created_by == owner_id,
+        )
+        .all()
+    )
 
     return [
-        {
-            'file_id': pre_annotation.file_id,
-            'sample_name': pre_annotation.sample_name
-        }
+        {"file_id": pre_annotation.file_id, "sample_name": pre_annotation.sample_name}
         for pre_annotation in pre_annotations
     ]
 
-def list_by_task_id_and_owner_id(db: Session, task_id: int, owner_id: int) -> List[TaskPreAnnotation]:
-    pre_annotations = db.query(TaskPreAnnotation).filter(
-        TaskPreAnnotation.task_id == task_id,
-        TaskPreAnnotation.deleted_at == None,
-        TaskPreAnnotation.created_by == owner_id
-    ).all()
-    
+
+def list_by_task_id_and_owner_id(
+    db: Session, task_id: int, owner_id: int
+) -> List[TaskPreAnnotation]:
+    pre_annotations = (
+        db.query(TaskPreAnnotation)
+        .filter(
+            TaskPreAnnotation.task_id == task_id,
+            TaskPreAnnotation.deleted_at == None,
+            TaskPreAnnotation.created_by == owner_id,
+        )
+        .all()
+    )
+
     return pre_annotations
 
-def list_by_task_id_and_file_id(db: Session, task_id: int, file_id: int) -> List[TaskPreAnnotation]:
-    return db.query(TaskPreAnnotation).filter(
-        TaskPreAnnotation.task_id == task_id,
-        TaskPreAnnotation.deleted_at == None,
-        TaskPreAnnotation.file_id == file_id
-    ).all()
 
-def list_by_task_id_and_owner_id_and_sample_name(db: Session, task_id: int, sample_name: str) -> List[TaskPreAnnotation]:
+def list_by_task_id_and_file_id(
+    db: Session, task_id: int, file_id: int
+) -> List[TaskPreAnnotation]:
+    return (
+        db.query(TaskPreAnnotation)
+        .filter(
+            TaskPreAnnotation.task_id == task_id,
+            TaskPreAnnotation.deleted_at == None,
+            TaskPreAnnotation.file_id == file_id,
+        )
+        .all()
+    )
+
+
+def list_by_task_id_and_owner_id_and_sample_name(
+    db: Session, task_id: int, sample_name: str
+) -> List[TaskPreAnnotation]:
     """list pre annotations by task_id, owner_id and sample_name without pagination
 
     Args:
@@ -110,16 +131,24 @@ def list_by_task_id_and_owner_id_and_sample_name(db: Session, task_id: int, samp
     Returns:
         List[TaskPreAnnotation]: _description_
     """
-    return db.query(TaskPreAnnotation).filter(
-        TaskPreAnnotation.task_id == task_id,
-        TaskPreAnnotation.deleted_at == None,
-        TaskPreAnnotation.sample_name == sample_name
-    ).all()
+    return (
+        db.query(TaskPreAnnotation)
+        .filter(
+            TaskPreAnnotation.task_id == task_id,
+            TaskPreAnnotation.deleted_at == None,
+            TaskPreAnnotation.sample_name == sample_name,
+        )
+        .all()
+    )
+
 
 def get(db: Session, pre_annotation_id: int) -> TaskPreAnnotation:
     return (
         db.query(TaskPreAnnotation)
-        .filter(TaskPreAnnotation.id == pre_annotation_id, TaskPreAnnotation.deleted_at == None)
+        .filter(
+            TaskPreAnnotation.id == pre_annotation_id,
+            TaskPreAnnotation.deleted_at == None,
+        )
         .first()
     )
 
@@ -127,12 +156,17 @@ def get(db: Session, pre_annotation_id: int) -> TaskPreAnnotation:
 def get_by_ids(db: Session, pre_annotation_ids: List[int]) -> List[TaskPreAnnotation]:
     return (
         db.query(TaskPreAnnotation)
-        .filter(TaskPreAnnotation.id.in_(pre_annotation_ids), TaskPreAnnotation.deleted_at == None)
+        .filter(
+            TaskPreAnnotation.id.in_(pre_annotation_ids),
+            TaskPreAnnotation.deleted_at == None,
+        )
         .all()
     )
 
 
-def update(db: Session, db_obj: TaskPreAnnotation, obj_in: Dict[str, Any]) -> TaskPreAnnotation:
+def update(
+    db: Session, db_obj: TaskPreAnnotation, obj_in: Dict[str, Any]
+) -> TaskPreAnnotation:
     obj_data = jsonable_encoder(obj_in)
     for field in obj_data:
         if field in obj_in:
@@ -144,17 +178,39 @@ def update(db: Session, db_obj: TaskPreAnnotation, obj_in: Dict[str, Any]) -> Ta
 
 
 def delete(db: Session, pre_annotation_ids: List[int]) -> None:
-    db.query(TaskPreAnnotation).filter(TaskPreAnnotation.id.in_(pre_annotation_ids)).update(
-        {TaskPreAnnotation.deleted_at: datetime.now()}
-    )
+    db.query(TaskPreAnnotation).filter(
+        TaskPreAnnotation.id.in_(pre_annotation_ids)
+    ).update({TaskPreAnnotation.deleted_at: datetime.now()})
 
 
 def count(db: Session, task_id: int, sample_name: str | None) -> int:
     query_filter = [TaskPreAnnotation.deleted_at == None]
     if task_id:
         query_filter.append(TaskPreAnnotation.task_id == task_id)
-        
+
     if sample_name:
         query_filter.append(TaskPreAnnotation.sample_name == sample_name)
-        
+
     return db.query(TaskPreAnnotation).filter(*query_filter).count()
+
+
+def existing_sample_names(
+    db: Session, task_id: int, sample_names: set[str]
+) -> set[str]:
+    """Return matching pre-annotation sample names in one query."""
+    if not sample_names:
+        return set()
+
+    return {
+        row[0]
+        for row in (
+            db.query(TaskPreAnnotation.sample_name)
+            .filter(
+                TaskPreAnnotation.task_id == task_id,
+                TaskPreAnnotation.sample_name.in_(sample_names),
+                TaskPreAnnotation.deleted_at == None,
+            )
+            .distinct()
+            .all()
+        )
+    }

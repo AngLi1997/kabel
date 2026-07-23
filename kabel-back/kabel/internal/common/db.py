@@ -9,11 +9,15 @@ from kabel.internal.common.config import settings
 engine = None
 database_url = settings.DATABASE_URL
 
-if settings.DATABASE_URL.startswith('mysql'):
+if settings.DATABASE_URL.startswith("mysql"):
     engine = create_engine(
         database_url,
+        pool_size=settings.DB_POOL_SIZE,
+        max_overflow=settings.DB_MAX_OVERFLOW,
+        pool_timeout=settings.DB_POOL_TIMEOUT_SECONDS,
         pool_pre_ping=True,
-        pool_recycle=3600,
+        pool_recycle=settings.DB_POOL_RECYCLE_SECONDS,
+        pool_use_lifo=True,
     )
 else:
     # connect_args is needed only for SQLite. It's not needed for other databases
@@ -22,9 +26,10 @@ else:
         connect_args={"check_same_thread": False, "timeout": 30},
     )
 
-SessionLocal = sessionmaker(autoflush=False, bind=engine)
+SessionLocal = sessionmaker(autoflush=False, expire_on_commit=False, bind=engine)
 
 Base = declarative_base()
+
 
 # create database tables
 def init_tables() -> None:

@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Union
 
 
 from sqlalchemy import case, func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, selectinload
 from fastapi.encoders import jsonable_encoder
 
 from kabel.internal.domain.models.sample import SampleState
@@ -33,7 +33,15 @@ def list_by(
         query_filter.append(TaskSample.id > after)
     if task_id:
         query_filter.append(TaskSample.task_id == task_id)
-    query = db.query(TaskSample).filter(*query_filter)
+    query = (
+        db.query(TaskSample)
+        .options(
+            joinedload(TaskSample.file),
+            joinedload(TaskSample.owner),
+            selectinload(TaskSample.updaters),
+        )
+        .filter(*query_filter)
+    )
 
     # case when for state enum
     whens = {state.value: index for index, state in enumerate(SampleState)}
@@ -71,11 +79,7 @@ def list_by(
         query = query.order_by(TaskSample.id.desc())
     else:
         query = query.order_by(TaskSample.id.asc())
-    results = (
-        query.offset(offset=page * size if page else 0)
-        .limit(limit=size)
-        .all()
-    )
+    results = query.offset(offset=page * size if page else 0).limit(limit=size).all()
     if before:
         results.reverse()
     return results
@@ -84,12 +88,19 @@ def list_by(
 def get(db: Session, sample_id: int) -> TaskSample:
     return (
         db.query(TaskSample)
+        .options(
+            joinedload(TaskSample.file),
+            joinedload(TaskSample.owner),
+            selectinload(TaskSample.updaters),
+        )
         .filter(TaskSample.id == sample_id, TaskSample.deleted_at == None)
         .first()
     )
 
 
-def get_by_ids(db: Session, sample_ids: List[int], task_id: Union[int, None] = None) -> List[TaskSample]:
+def get_by_ids(
+    db: Session, sample_ids: List[int], task_id: Union[int, None] = None
+) -> List[TaskSample]:
     query_filter = [TaskSample.id.in_(sample_ids), TaskSample.deleted_at == None]
     if task_id is not None:
         query_filter.append(TaskSample.task_id == task_id)
@@ -130,6 +141,19 @@ def count(db: Session, task_id: int) -> int:
     if task_id:
         query_filter.append(TaskSample.task_id == task_id)
     return db.query(TaskSample).filter(*query_filter).count()
+
+
+def has_state(db: Session, task_id: int, state: str) -> bool:
+    return (
+        db.query(TaskSample.id)
+        .filter(
+            TaskSample.task_id == task_id,
+            TaskSample.deleted_at == None,
+            TaskSample.state == state,
+        )
+        .first()
+        is not None
+    )
 
 
 def statics(

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from functools import lru_cache
+from threading import Lock
 from typing import List, Tuple, Optional
 
 import boto3
@@ -25,8 +27,8 @@ from kabel.internal.common.error_code import ErrorCode, KabelException
 from kabel.internal.domain.models.data_source import DataSource
 from kabel.internal.domain.models.user import User
 
-
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff", ".tif", ".gif"}
+_s3_client_cache_lock = Lock()
 
 
 def _to_response(ds: DataSource) -> DataSourceResponse:
@@ -47,27 +49,50 @@ def _to_response(ds: DataSource) -> DataSourceResponse:
     )
 
 
-def _build_s3_client(ds: DataSource):
-    """Create a boto3 S3 client from a DataSource's (decrypted) credentials."""
-    ak = decrypt_value(ds.access_key_id) if ds.access_key_id else None
-    sk = decrypt_value(ds.secret_access_key) if ds.secret_access_key else None
+@lru_cache(maxsize=128)
+def _build_s3_client_cached(
+    endpoint: str | None,
+    region: str | None,
+    access_key_id: str | None,
+    secret_access_key: str | None,
+    path_style: bool,
+    use_ssl: bool,
+):
+    """Build one reusable client for each immutable data-source configuration."""
+    ak = decrypt_value(access_key_id) if access_key_id else None
+    sk = decrypt_value(secret_access_key) if secret_access_key else None
     kwargs = {}
-    if ds.region:
-        kwargs["region_name"] = ds.region
-    kwargs["config"] = Config(
-        s3={"addressing_style": "path" if ds.path_style else "auto"}
-    )
+    if region:
+        kwargs["region_name"] = region
+    kwargs["config"] = Config(s3={"addressing_style": "path" if path_style else "auto"})
     return boto3.client(
         "s3",
-        endpoint_url=ds.endpoint or None,
+        endpoint_url=endpoint or None,
         aws_access_key_id=ak,
         aws_secret_access_key=sk,
-        use_ssl=ds.use_ssl,
+        use_ssl=use_ssl,
         **kwargs,
     )
 
 
-def get_presigned_url(ds: DataSource, key: str, expires_in: Optional[int] = None) -> str:
+def _build_s3_client(ds: DataSource):
+    """Return a cached boto3 client for a data source."""
+    # lru_cache may compute the same missing key concurrently. Serialize the
+    # tiny cache lookup so a cold 20-user burst creates only one boto3 client.
+    with _s3_client_cache_lock:
+        return _build_s3_client_cached(
+            ds.endpoint,
+            ds.region,
+            ds.access_key_id,
+            ds.secret_access_key,
+            bool(ds.path_style),
+            bool(ds.use_ssl),
+        )
+
+
+def get_presigned_url(
+    ds: DataSource, key: str, expires_in: Optional[int] = None
+) -> str:
     """Generate a presigned read URL for a given object key using the data source credentials."""
     client = _build_s3_client(ds)
     return client.generate_presigned_url(
@@ -78,6 +103,7 @@ def get_presigned_url(ds: DataSource, key: str, expires_in: Optional[int] = None
 
 
 # ── CRUD ──────────────────────────────────────────────────────────────
+
 
 async def create(
     db: Session, cmd: CreateDataSourceCommand, current_user: User
@@ -157,6 +183,7 @@ async def delete(db: Session, ds_id: int, current_user: User) -> None:
 
 # ── S3 file listing ──────────────────────────────────────────────────
 
+
 async def list_objects(
     db: Session,
     ds_id: int,
@@ -187,12 +214,18 @@ async def list_objects(
 
     allowed_exts = None
     if extension:
-        allowed_exts = {("." + e.strip().lower().lstrip(".")) for e in extension.split(",") if e.strip()}
+        allowed_exts = {
+            ("." + e.strip().lower().lstrip("."))
+            for e in extension.split(",")
+            if e.strip()
+        }
 
     try:
         resp = client.list_objects_v2(**kwargs)
     except Exception as exc:
-        logger.opt(exception=exc).error("S3 list_objects_v2 failed for datasource {}", ds_id)
+        logger.opt(exception=exc).error(
+            "S3 list_objects_v2 failed for datasource {}", ds_id
+        )
         raise KabelException(
             code=ErrorCode.CODE_62002_S3_REQUEST_FAILED,
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -207,11 +240,17 @@ async def list_objects(
             ext = "." + key.rsplit(".", 1)[-1].lower() if "." in key else ""
             if ext not in allowed_exts:
                 continue
-        objects.append(S3ObjectItem(
-            key=key,
-            size=obj.get("Size", 0),
-            last_modified=obj.get("LastModified", "").isoformat() if obj.get("LastModified") else None,
-        ))
+        objects.append(
+            S3ObjectItem(
+                key=key,
+                size=obj.get("Size", 0),
+                last_modified=(
+                    obj.get("LastModified", "").isoformat()
+                    if obj.get("LastModified")
+                    else None
+                ),
+            )
+        )
 
     return S3ObjectListResponse(
         objects=objects,

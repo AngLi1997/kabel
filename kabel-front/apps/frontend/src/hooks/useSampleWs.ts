@@ -20,17 +20,27 @@ export default function useSampleWs() {
   const host = window.location.host;
   const token = localStorage.getItem('token')?.split(' ')[1];
   const wsRef = useRef<WebSocketClient | null>(null);
+  const revalidateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sampleId = Number(routeParams.sampleId);
+  const latestSampleIdRef = useRef(sampleId);
+  latestSampleIdRef.current = sampleId;
 
   useEffect(() => {
     if (!wsRef.current) {
       return;
     }
 
-    const isMeCurrentEditor = connections[0]?.user_id === me.data?.id;
+    const isMeCurrentEditor = connections.find((item) => item.sample_id === sampleId)?.user_id === me.data?.id;
     const ws = wsRef.current;
     const handleSampleUpdate = (data: TaskSampleUser) => {
-      if (!isMeCurrentEditor && data.user_id !== me.data?.id && data.sample_id === +routeParams.sampleId!) {
-        revalidator.revalidate();
+      if (!isMeCurrentEditor && data.user_id !== me.data?.id && data.sample_id === sampleId) {
+        if (revalidateTimerRef.current) {
+          clearTimeout(revalidateTimerRef.current);
+        }
+        revalidateTimerRef.current = setTimeout(() => {
+          revalidator.revalidate();
+          revalidateTimerRef.current = null;
+        }, 100);
       }
     };
 
@@ -38,13 +48,17 @@ export default function useSampleWs() {
 
     return () => {
       ws.off('update', handleSampleUpdate);
+      if (revalidateTimerRef.current) {
+        clearTimeout(revalidateTimerRef.current);
+        revalidateTimerRef.current = null;
+      }
     };
-  }, [connections, me.data?.id, revalidator, routeParams.sampleId]);
+  }, [connections, me.data?.id, revalidator, sampleId]);
 
   useEffect(() => {
     wsRef.current = new WebSocketClient(
       `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${host}/ws/task/${routeParams.taskId}/${
-        routeParams.sampleId
+        latestSampleIdRef.current
       }?token=${token}`,
     );
 
@@ -55,13 +69,29 @@ export default function useSampleWs() {
     });
 
     return () => {
-      ws.disconnect();
+      ws.destroy();
+      wsRef.current = null;
     };
-  }, [host, routeParams.sampleId, routeParams.taskId, token]);
+  }, [host, routeParams.taskId, token]);
+
+  useEffect(() => {
+    const ws = wsRef.current;
+    if (!ws || !sampleId) {
+      return;
+    }
+
+    const syncSample = () => ws.send('sample', { sample_id: sampleId });
+    ws.on('connect', syncSample);
+    syncSample();
+
+    return () => {
+      ws.off('connect', syncSample);
+    };
+  }, [sampleId]);
 
   const currentSampleUsers = useMemo(() => {
-    return connections.filter((item) => item.sample_id === +routeParams.sampleId!);
-  }, [connections, routeParams.sampleId]);
+    return connections.filter((item) => item.sample_id === sampleId);
+  }, [connections, sampleId]);
 
   return [currentSampleUsers, connections];
 }

@@ -28,7 +28,9 @@ class TaskSample(Base):
     created_by = Column(Integer, ForeignKey("user.id"), index=True)
     updated_by = Column(Integer, ForeignKey("user.id"))
     created_at = Column(
-        DateTime(timezone=True), default=datetime.now, comment="Time a task sample result was created"
+        DateTime(timezone=True),
+        default=datetime.now,
+        comment="Time a task sample result was created",
     )
     updated_at = Column(
         DateTime(timezone=True),
@@ -56,3 +58,5 @@ class TaskSample(Base):
     updaters = relationship("User", secondary="task_sample_updater")
 
     Index("idx_sample_id_deleted_at", id, deleted_at)
+    Index("idx_sample_task_deleted_state", task_id, deleted_at, state)
+    Index("idx_sample_task_deleted_id", task_id, deleted_at, id)

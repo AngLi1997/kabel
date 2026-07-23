@@ -75,6 +75,7 @@ tags_metadata = [
     },
 ]
 
+
 @asynccontextmanager
 async def lifespan(app):
     if settings.need_migration_to_mysql:
@@ -122,6 +123,7 @@ add_router(app=app)
 add_ws_router(app=app)
 add_middleware(app=app)
 
+
 class NoCacheStaticFiles(StaticFiles):
     def __init__(self, *args: Any, **kwargs: Any):
         self.cachecontrol = "max-age=0, no-cache, no-store, must-revalidate"
@@ -131,34 +133,54 @@ class NoCacheStaticFiles(StaticFiles):
 
     def file_response(self, *args: Any, **kwargs: Any) -> Response:
         resp = super().file_response(*args, **kwargs)
-        
+
         # No cache for html files
         if resp.media_type == "text/html":
             resp.headers.setdefault("Cache-Control", self.cachecontrol)
             resp.headers.setdefault("Pragma", self.pragma)
             resp.headers.setdefault("Expires", self.expires)
-            
+
         return resp
+
 
 app.mount("", NoCacheStaticFiles(packages=["kabel.internal"], html=True))
 
+
 @click.group(invoke_without_command=True)
-@click.option('--host', default='localhost', help='Server host')
-@click.option('--port', default=8000, help='Server port')
-@click.option('--media-host', default='http://localhost:8000', help='Media Host')
+@click.option("--host", default="localhost", help="Server host")
+@click.option("--port", default=8000, help="Server port")
+@click.option("--media-host", default="http://localhost:8000", help="Media Host")
 @click.pass_context
 def cli(ctx: click.Context, host: str, port: int, media_host: str):
     if ctx.invoked_subcommand is None:
         settings.PORT = port
         settings.HOST = host
         settings.MEDIA_HOST = media_host
-        
-        uvicorn.run(app=app, host=settings.HOST, port=settings.PORT, ws="websockets")
 
-@cli.command('migrate_to_mysql')
+        uvicorn.run(
+            app=app,
+            host=settings.HOST,
+            port=settings.PORT,
+            loop="auto",
+            http="auto",
+            ws="websockets",
+            ws_max_queue=64,
+            ws_ping_interval=None,
+            ws_per_message_deflate=False,
+            workers=1,
+            limit_concurrency=settings.UVICORN_LIMIT_CONCURRENCY,
+            backlog=settings.UVICORN_BACKLOG,
+            timeout_keep_alive=settings.UVICORN_TIMEOUT_KEEP_ALIVE,
+            access_log=settings.UVICORN_ACCESS_LOG,
+            server_header=False,
+        )
+
+
+@cli.command("migrate_to_mysql")
 def to_mysql():
     """Migrate database to MySQL"""
     migrate_to_mysql()
+
 
 if __name__ == "__main__":
     cli()

@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from fastapi import APIRouter, Depends, Query, status, Security
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials
+from starlette.concurrency import run_in_threadpool
 
 from kabel.internal.common import db as db_module
 from kabel.internal.common.security import security
@@ -14,7 +15,10 @@ from kabel.internal.domain.models.user import User
 from kabel.internal.dependencies.user import get_current_user
 from kabel.internal.application.service import sample as service
 from kabel.internal.application.service import auto_label as auto_label_service
-from kabel.internal.application.command.auto_label import AutoLabelCommand, BatchAutoLabelCommand
+from kabel.internal.application.command.auto_label import (
+    AutoLabelCommand,
+    BatchAutoLabelCommand,
+)
 from kabel.internal.application.command.sample import ExportType
 from kabel.internal.application.command.sample import PatchSampleCommand
 from kabel.internal.application.command.sample import CreateSampleCommand
@@ -27,18 +31,22 @@ from kabel.internal.application.response.base import CommonDataResp
 from kabel.internal.application.response.base import OkRespWithMeta
 from kabel.internal.application.response.sample import SampleResponse
 from kabel.internal.application.response.sample import CreateSampleResponse
-from kabel.internal.application.response.auto_label import AutoLabelResponse, AutoLabelJobResponse
+from kabel.internal.application.response.auto_label import (
+    AutoLabelResponse,
+    AutoLabelJobResponse,
+)
 from kabel.internal.application.response.export import ExportJobResponse
 from kabel.internal.adapter.persistence import crud_export_job
 from kabel.internal.adapter.persistence import crud_task
 from kabel.internal.application.service.access import assert_task_access
 from kabel.internal.common.storage import get_storage_backend
 
-
 router = APIRouter(prefix="/tasks", tags=["samples"])
 
 
-def _export_progress(sample_count: int, processed_count: int, status: str) -> tuple[int | None, str | None]:
+def _export_progress(
+    sample_count: int, processed_count: int, status: str
+) -> tuple[int | None, str | None]:
     if status not in {"COMPLETED", "FAILED"}:
         return None, None
     skipped_count = max(sample_count - processed_count, 0)
@@ -105,7 +113,8 @@ async def list_by(
         )
 
     # business logic
-    data, total = await service.list_by(
+    data, total = await run_in_threadpool(
+        service.list_by,
         db=db,
         task_id=task_id,
         after=after,
@@ -138,8 +147,12 @@ async def get(
     """
 
     # business logic
-    data = await service.get(
-        db=db, task_id=task_id, sample_id=sample_id, current_user=current_user
+    data = await run_in_threadpool(
+        service.get,
+        db=db,
+        task_id=task_id,
+        sample_id=sample_id,
+        current_user=current_user,
     )
 
     # response
@@ -245,7 +258,10 @@ async def import_s3(
     current_user: User = Depends(get_current_user),
 ):
     data = await service.import_from_s3(
-        db=db, task_id=task_id, cmd=cmd, current_user=current_user,
+        db=db,
+        task_id=task_id,
+        cmd=cmd,
+        current_user=current_user,
     )
     return OkResp[CreateSampleResponse](data=data)
 
@@ -299,16 +315,18 @@ async def export(
         current_user=current_user,
     )
 
-    return OkResp[ExportJobResponse](data=ExportJobResponse(
-        id=job_id,
-        task_id=task_id,
-        export_type=export_type.value,
-        status="PENDING",
-        sample_count=len(cmd.sample_ids),
-        processed_count=0,
-        skipped_count=None,
-        warning_message=None,
-    ))
+    return OkResp[ExportJobResponse](
+        data=ExportJobResponse(
+            id=job_id,
+            task_id=task_id,
+            export_type=export_type.value,
+            status="PENDING",
+            sample_count=len(cmd.sample_ids),
+            processed_count=0,
+            skipped_count=None,
+            warning_message=None,
+        )
+    )
 
 
 @router.get(
@@ -344,20 +362,22 @@ async def get_export_status(
         status=job.status,
     )
 
-    return OkResp[ExportJobResponse](data=ExportJobResponse(
-        id=job.id,
-        task_id=job.task_id,
-        export_type=job.export_type,
-        status=job.status,
-        sample_count=job.sample_count,
-        processed_count=job.processed_count,
-        skipped_count=skipped_count,
-        warning_message=warning_message,
-        file_path=job.file_path,
-        error_message=job.error_message,
-        created_at=job.created_at,
-        updated_at=job.updated_at,
-    ))
+    return OkResp[ExportJobResponse](
+        data=ExportJobResponse(
+            id=job.id,
+            task_id=job.task_id,
+            export_type=job.export_type,
+            status=job.status,
+            sample_count=job.sample_count,
+            processed_count=job.processed_count,
+            skipped_count=skipped_count,
+            warning_message=warning_message,
+            file_path=job.file_path,
+            error_message=job.error_message,
+            created_at=job.created_at,
+            updated_at=job.updated_at,
+        )
+    )
 
 
 @router.get(
@@ -389,7 +409,9 @@ async def download_export(
     storage = get_storage_backend()
     if storage.is_remote:
         download_url = storage.get_read_url(job.file_path)
-        return RedirectResponse(url=download_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+        return RedirectResponse(
+            url=download_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT
+        )
 
     file_path = Path(job.file_path)
     media_type = ".json" if file_path.suffix == ".json" else file_path.suffix.strip(".")

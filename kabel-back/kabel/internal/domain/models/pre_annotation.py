@@ -14,12 +14,16 @@ class TaskPreAnnotation(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     task_id = Column(Integer, ForeignKey("task.id"), index=True, comment="Task ID")
-    sample_name = Column(String(255), index=True, comment="One of the sample names of the task")
+    sample_name = Column(
+        String(255), index=True, comment="One of the sample names of the task"
+    )
     file_id = Column(Integer, ForeignKey("task_attachment.id"), index=True)
     created_by = Column(Integer, ForeignKey("user.id"), index=True)
     updated_by = Column(Integer, ForeignKey("user.id"))
     created_at = Column(
-        DateTime(timezone=True), default=datetime.now, comment="Time a task sample result was created"
+        DateTime(timezone=True),
+        default=datetime.now,
+        comment="Time a task sample result was created",
     )
     updated_at = Column(
         DateTime(timezone=True),
@@ -28,7 +32,9 @@ class TaskPreAnnotation(Base):
         comment="Last time a task pre annotation result was updated",
     )
     data = Column(Text, comment="task sample pre annotation result")
-    deleted_at = Column(DateTime(timezone=True), index=True, comment="Task pre-annotation delete time")
+    deleted_at = Column(
+        DateTime(timezone=True), index=True, comment="Task pre-annotation delete time"
+    )
 
     file = relationship("TaskAttachment", foreign_keys=[file_id])
     task = relationship("Task", foreign_keys=[task_id])
@@ -37,4 +43,9 @@ class TaskPreAnnotation(Base):
 
     Index("idx_pre_annotation_sample_name", sample_name)
     Index("idx_pre_annotation_id_deleted_at", id, deleted_at)
-
+    Index(
+        "idx_pre_annotation_task_sample_deleted",
+        task_id,
+        sample_name,
+        deleted_at,
+    )

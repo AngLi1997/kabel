@@ -1,5 +1,4 @@
 import json
-import os
 import uuid
 import asyncio
 from datetime import datetime
@@ -9,6 +8,7 @@ from pathlib import Path
 from loguru import logger
 from fastapi import status
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from kabel.internal.common.db import begin_transaction
 from kabel.internal.common.config import settings
@@ -20,11 +20,14 @@ from kabel.internal.common.storage import (
     get_storage_backend,
 )
 from kabel.internal.application.service.access import assert_task_access, assert_owner
-from kabel.internal.adapter.persistence import crud_attachment, crud_pre_annotation, crud_task
+from kabel.internal.adapter.persistence import (
+    crud_attachment,
+    crud_pre_annotation,
+    crud_task,
+)
 from kabel.internal.adapter.persistence import crud_sample
 from kabel.internal.adapter.persistence import crud_export_job
 from kabel.internal.adapter.persistence import crud_datasource
-from kabel.internal.domain.models.pre_annotation import TaskPreAnnotation
 from kabel.internal.domain.models.user import User
 from kabel.internal.domain.models.task import Task
 from kabel.internal.domain.models.task import TaskStatus
@@ -45,18 +48,38 @@ from kabel.internal.common.websocket import Message, MessageType
 from kabel.internal.adapter.ws.sample import TaskSampleWsPayload
 
 
-def is_sample_pre_annotated(db: Session, task_id: int, sample_name: str | None = None) -> bool:
+def is_sample_pre_annotated(
+    db: Session, task_id: int, sample_name: str | None = None
+) -> bool:
     if sample_name is None:
         return False
 
-    _, total = crud_pre_annotation.list_by(
-        db=db,
-        task_id=task_id,
-        sample_name=sample_name,
-        size=1,
+    variants = {sample_name, sample_name[9:]}
+    existing_names = crud_pre_annotation.existing_sample_names(
+        db=db, task_id=task_id, sample_names=variants
     )
+    return bool(variants & existing_names)
 
-    return total > 0
+
+def get_pre_annotated_sample_names(
+    db: Session, task_id: int, sample_names: list[str]
+) -> set[str]:
+    """Resolve pre-annotation flags for a sample page in one query."""
+    variants_by_name = {
+        sample_name: {sample_name, sample_name[9:]} for sample_name in sample_names
+    }
+    candidates = {
+        variant for variants in variants_by_name.values() for variant in variants
+    }
+    existing_names = crud_pre_annotation.existing_sample_names(
+        db=db, task_id=task_id, sample_names=candidates
+    )
+    return {
+        sample_name
+        for sample_name, variants in variants_by_name.items()
+        if variants & existing_names
+    }
+
 
 async def create(
     db: Session, task_id: int, cmd: List[CreateSampleCommand], current_user: User
@@ -156,11 +179,13 @@ def _collect_s3_keys(ds, prefix: str, extension: str | None) -> list[str]:
 
 
 async def import_from_s3(
-    db: Session, task_id: int, cmd: ImportS3SamplesCommand, current_user: User,
+    db: Session,
+    task_id: int,
+    cmd: ImportS3SamplesCommand,
+    current_user: User,
 ) -> CreateSampleResponse:
     """Import S3 objects as task samples (no file copy — stores reference only)."""
     from kabel.internal.domain.models.attachment import TaskAttachment
-    from kabel.internal.application.service.datasource import _build_s3_client
 
     with begin_transaction(db):
         task = crud_task.get(db=db, task_id=task_id, lock=True)
@@ -218,7 +243,9 @@ async def import_from_s3(
             )
             for i, att in enumerate(attachments)
         ]
-        obj_in = {Task.last_sample_inner_id.key: task.last_sample_inner_id + len(samples)}
+        obj_in = {
+            Task.last_sample_inner_id.key: task.last_sample_inner_id + len(samples)
+        }
         if task.status == TaskStatus.DRAFT.value:
             obj_in[Task.status.key] = TaskStatus.IMPORTED
         crud_task.update(db=db, db_obj=task, obj_in=obj_in)
@@ -227,7 +254,7 @@ async def import_from_s3(
     return CreateSampleResponse(ids=[s.id for s in new_samples])
 
 
-async def list_by(
+def list_by(
     db: Session,
     task_id: Union[int, None],
     after: Union[int, None],
@@ -252,6 +279,14 @@ async def list_by(
     )
 
     total = crud_sample.count(db=db, task_id=task_id)
+    sample_names = [
+        sample.file.filename
+        for sample in samples
+        if sample.file and sample.file.filename
+    ]
+    pre_annotated_sample_names = get_pre_annotated_sample_names(
+        db=db, task_id=task_id, sample_names=sample_names
+    )
 
     # response
     return [
@@ -261,7 +296,11 @@ async def list_by(
             state=sample.state,
             data=json.loads(sample.data),
             annotated_count=sample.annotated_count,
-            is_pre_annotated=is_sample_pre_annotated(db=db, task_id=task_id, sample_name=sample.file.filename if sample.file else None),
+            is_pre_annotated=(
+                sample.file.filename in pre_annotated_sample_names
+                if sample.file
+                else False
+            ),
             file=build_attachment_response(sample.file),
             created_at=sample.created_at,
             created_by=UserResp(
@@ -269,16 +308,19 @@ async def list_by(
                 username=sample.owner.username,
             ),
             updated_at=sample.updated_at,
-            updaters=[UserResp(
-                id=updater.id,
-                username=updater.username,
-            ) for updater in sample.updaters],
+            updaters=[
+                UserResp(
+                    id=updater.id,
+                    username=updater.username,
+                )
+                for updater in sample.updaters
+            ],
         )
         for sample in samples
     ], total
 
 
-async def get(
+def get(
     db: Session, task_id: int, sample_id: int, current_user: User
 ) -> SampleResponse:
     sample = crud_sample.get(
@@ -303,7 +345,11 @@ async def get(
         inner_id=sample.inner_id,
         state=sample.state,
         data=json.loads(sample.data),
-        is_pre_annotated=is_sample_pre_annotated(db=db, task_id=task_id, sample_name=sample.file.filename if sample.file else None),
+        is_pre_annotated=is_sample_pre_annotated(
+            db=db,
+            task_id=task_id,
+            sample_name=sample.file.filename if sample.file else None,
+        ),
         file=build_attachment_response(sample.file),
         annotated_count=sample.annotated_count,
         created_at=sample.created_at,
@@ -312,14 +358,17 @@ async def get(
             username=sample.owner.username,
         ),
         updated_at=sample.updated_at,
-        updaters=[UserResp(
-            id=updater.id,
-            username=updater.username,
-        ) for updater in sample.updaters],
+        updaters=[
+            UserResp(
+                id=updater.id,
+                username=updater.username,
+            )
+            for updater in sample.updaters
+        ],
     )
 
 
-async def patch(
+def _patch(
     db: Session,
     task_id: int,
     sample_id: int,
@@ -361,38 +410,29 @@ async def patch(
         sample_obj_in[TaskSample.state.key] = SampleState.DONE.value
 
     with begin_transaction(db):
-        # update task status
-        if task.status != TaskStatus.FINISHED.value:
-            statics = crud_sample.statics(
-                db=db, task_ids=[task_id]
-            )
-            task_obj_in = {Task.status.key: TaskStatus.INPROGRESS.value}
-            new_sample_cnt = statics.get(f"{task.id}_{SampleState.NEW.value}", 0)
-            if new_sample_cnt == 0 or (
-                new_sample_cnt == 1 and sample.state == SampleState.NEW.value
-            ):
-                task_obj_in[Task.status.key] = TaskStatus.FINISHED.value
-            if task.status != task_obj_in[Task.status.key]:
-                crud_task.update(db=db, db_obj=task, obj_in=task_obj_in)
         # updaters
         if current_user not in sample.updaters:
             sample.updaters.append(current_user)
         # update task sample result
         updated_sample = crud_sample.update(db=db, db_obj=sample, obj_in=sample_obj_in)
-    
-    # tell other clients in the same sample page to refresh data
-    await sampleConnectionManager.send_message(
-        client_id=f"task_{task_id}",
-        message=Message(
-            type=MessageType.UPDATE,
-            data=TaskSampleWsPayload(
-                task_id=task_id,
-                user_id=current_user.id,
-                username=current_user.username,
-                sample_id=sample_id,
+
+        # Determine completion with an indexed existence check after the
+        # current sample state has been flushed.
+        if task.status != TaskStatus.FINISHED.value:
+            has_new_samples = crud_sample.has_state(
+                db=db, task_id=task_id, state=SampleState.NEW.value
             )
-        )
-    )
+            next_task_status = (
+                TaskStatus.INPROGRESS.value
+                if has_new_samples
+                else TaskStatus.FINISHED.value
+            )
+            if task.status != next_task_status:
+                crud_task.update(
+                    db=db,
+                    db_obj=task,
+                    obj_in={Task.status.key: next_task_status},
+                )
 
     # response
     return SampleResponse(
@@ -400,7 +440,11 @@ async def patch(
         inner_id=updated_sample.inner_id,
         state=updated_sample.state,
         data=json.loads(updated_sample.data),
-        is_pre_annotated=is_sample_pre_annotated(db=db, task_id=task_id, sample_name=sample.file.filename if sample.file else None),
+        is_pre_annotated=is_sample_pre_annotated(
+            db=db,
+            task_id=task_id,
+            sample_name=sample.file.filename if sample.file else None,
+        ),
         file=build_attachment_response(updated_sample.file),
         annotated_count=updated_sample.annotated_count,
         created_at=updated_sample.created_at,
@@ -409,11 +453,48 @@ async def patch(
             username=updated_sample.owner.username,
         ),
         updated_at=updated_sample.updated_at,
-        updaters=[UserResp(
-            id=updater.id,
-            username=updater.username,
-        ) for updater in updated_sample.updaters],
+        updaters=[
+            UserResp(
+                id=updater.id,
+                username=updater.username,
+            )
+            for updater in updated_sample.updaters
+        ],
     )
+
+
+async def patch(
+    db: Session,
+    task_id: int,
+    sample_id: int,
+    cmd: PatchSampleCommand,
+    current_user: User,
+) -> SampleResponse:
+    data = await run_in_threadpool(
+        _patch,
+        db=db,
+        task_id=task_id,
+        sample_id=sample_id,
+        cmd=cmd,
+        current_user=current_user,
+    )
+
+    asyncio.create_task(
+        sampleConnectionManager.send_message(
+            client_id=f"task_{task_id}",
+            message=Message(
+                type=MessageType.UPDATE,
+                data=TaskSampleWsPayload(
+                    task_id=task_id,
+                    user_id=current_user.id,
+                    username=current_user.username,
+                    sample_id=sample_id,
+                ),
+            ),
+            predicate=lambda connection: connection.data.sample_id == sample_id,
+        )
+    )
+    return data
 
 
 async def delete(
@@ -431,16 +512,14 @@ async def delete(
                 assert_task_access(task, current_user)
         attachment_ids = [sample.file_id for sample in samples if sample.file_id]
         attachments = crud_attachment.get_by_ids(db=db, attachment_ids=attachment_ids)
-        
-        attachments = crud_attachment.get_by_ids(
-            db=db, attachment_ids=attachment_ids
-        )
+
+        attachments = crud_attachment.get_by_ids(db=db, attachment_ids=attachment_ids)
         for attachment in attachments:
             storage.delete(attachment.path)
             thumbnail_key = build_thumbnail_key(attachment.path)
             if storage.exists(thumbnail_key):
                 storage.delete(thumbnail_key)
-        
+
         crud_sample.delete(db=db, sample_ids=sample_ids)
     # response
     return CommonDataResp(ok=True)
@@ -481,7 +560,9 @@ async def create_export_job(
     return job_id
 
 
-def _run_export_sync(job_id: int, task_id: int, export_type: ExportType, sample_ids: List[int]):
+def _run_export_sync(
+    job_id: int, task_id: int, export_type: ExportType, sample_ids: List[int]
+):
     """Run export in a thread. All operations here are synchronous and blocking."""
     from kabel.internal.common.db import SessionLocal
 
@@ -504,14 +585,16 @@ def _run_export_sync(job_id: int, task_id: int, export_type: ExportType, sample_
                     "url": sample.file.url,
                     "path": sample.file.path if hasattr(sample.file, "path") else "",
                 }
-            data.append({
-                "id": sample.id,
-                "inner_id": sample.inner_id,
-                "state": sample.state,
-                "data": sample.data,
-                "annotated_count": sample.annotated_count,
-                "file": file_dict,
-            })
+            data.append(
+                {
+                    "id": sample.id,
+                    "inner_id": sample.inner_id,
+                    "state": sample.state,
+                    "data": sample.data,
+                    "annotated_count": sample.annotated_count,
+                    "file": file_dict,
+                }
+            )
 
         out_data_dir = Path(settings.MEDIA_ROOT).joinpath(
             settings.EXPORT_DIR,
@@ -538,7 +621,9 @@ def _run_export_sync(job_id: int, task_id: int, export_type: ExportType, sample_
 
         with begin_transaction(db):
             crud_export_job.update_status(
-                db, job, ExportStatus.COMPLETED.value,
+                db,
+                job,
+                ExportStatus.COMPLETED.value,
                 file_path=stored_path,
                 processed_count=len(data),
             )
@@ -548,7 +633,9 @@ def _run_export_sync(job_id: int, task_id: int, export_type: ExportType, sample_
             job = crud_export_job.get(db=db, job_id=job_id)
             with begin_transaction(db):
                 crud_export_job.update_status(
-                    db, job, ExportStatus.FAILED.value,
+                    db,
+                    job,
+                    ExportStatus.FAILED.value,
                     error_message=str(e),
                 )
         except Exception:
@@ -578,14 +665,16 @@ async def export(
                 "url": sample.file.url,
                 "path": sample.file.path if hasattr(sample.file, "path") else "",
             }
-        data.append({
-            "id": sample.id,
-            "inner_id": sample.inner_id,
-            "state": sample.state,
-            "data": sample.data,
-            "annotated_count": sample.annotated_count,
-            "file": file_dict,
-        })
+        data.append(
+            {
+                "id": sample.id,
+                "inner_id": sample.inner_id,
+                "state": sample.state,
+                "data": sample.data,
+                "annotated_count": sample.annotated_count,
+                "file": file_dict,
+            }
+        )
 
     # output data path
     out_data_dir = Path(settings.MEDIA_ROOT).joinpath(
