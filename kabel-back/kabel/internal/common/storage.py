@@ -44,6 +44,10 @@ class StorageBackend(ABC):
     def read_text(self, key: str, encoding: str = "utf-8") -> str:
         raise NotImplementedError
 
+    def read_bytes(self, key: str) -> bytes:
+        """Read raw bytes of an object. Override in subclasses that support binary reads."""
+        raise NotImplementedError
+
     @abstractmethod
     def get_local_path(self, key: str) -> Optional[Path]:
         raise NotImplementedError
@@ -90,6 +94,9 @@ class LocalStorageBackend(StorageBackend):
 
     def read_text(self, key: str, encoding: str = "utf-8") -> str:
         return self._resolve(key).read_text(encoding=encoding)
+
+    def read_bytes(self, key: str) -> bytes:
+        return self._resolve(key).read_bytes()
 
     def get_local_path(self, key: str) -> Optional[Path]:
         return self._resolve(key)
@@ -156,6 +163,10 @@ class S3StorageBackend(StorageBackend):
     def read_text(self, key: str, encoding: str = "utf-8") -> str:
         result = self._client.get_object(Bucket=self._bucket, Key=key)
         return result["Body"].read().decode(encoding)
+
+    def read_bytes(self, key: str) -> bytes:
+        result = self._client.get_object(Bucket=self._bucket, Key=key)
+        return result["Body"].read()
 
     def get_local_path(self, key: str) -> Optional[Path]:
         return None

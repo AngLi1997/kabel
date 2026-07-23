@@ -2,6 +2,7 @@ import base64
 import csv
 import json
 import os
+from io import BytesIO
 from zipfile import ZipFile
 from PIL import Image, ImageDraw
 from enum import Enum
@@ -17,6 +18,48 @@ from .xml_converter import XML_converter
 from .tf_record_converter import TF_record_converter
 from .color import colors
 from .config import settings
+
+
+def _open_image_for_export(file_path: str, rotate: int = 0, return_image: bool = False):
+    """Open an image for export, supporting both local and remote (S3/MinIO) storage.
+
+    Args:
+        file_path: The storage-relative path to the image.
+        rotate: Rotation angle in degrees (applied with expand=True).
+        return_image: If True, return the PIL Image object along with dimensions.
+
+    Returns:
+        If return_image=False: (width, height) or (None, None) on failure.
+        If return_image=True:  (width, height, image) or (None, None, None) on failure.
+                               Caller is responsible for closing the image.
+    """
+    from kabel.internal.common.storage import get_storage_backend
+
+    storage = get_storage_backend()
+    img = None
+
+    if not storage.is_remote:
+        local_path = settings.MEDIA_ROOT.joinpath(file_path.lstrip("/"))
+        if local_path.exists():
+            img = Image.open(local_path)
+        else:
+            return (None, None, None) if return_image else (None, None)
+    else:
+        # Remote storage: download image bytes via S3/MinIO
+        key = file_path.lstrip("/")
+        try:
+            img = Image.open(BytesIO(storage.read_bytes(key)))
+        except Exception as e:
+            logger.warning("Failed to download image from remote storage: {} — {}", key, e)
+            return (None, None, None) if return_image else (None, None)
+
+    if rotate:
+        img = img.rotate(rotate, expand=True)
+    w, h = img.size
+    if return_image:
+        return w, h, img
+    img.close()
+    return w, h
 
 
 class Format(str, Enum):
@@ -119,7 +162,8 @@ class Converter:
             file = sample.get("file", {})
             
             # change skipped result is invalid
-            annotated_result = json.loads(data.get("result"))
+            raw_result = data.get("result")
+            annotated_result = json.loads(raw_result) if raw_result else None
             if annotated_result and sample.get("state") == "SKIPPED":
                 annotated_result["valid"] = False
 
@@ -440,7 +484,8 @@ class Converter:
             file = sample.get("file", {})
             
             # skip invalid data
-            annotated_result = json.loads(data.get("result"))
+            raw_result = data.get("result")
+            annotated_result = json.loads(raw_result) if raw_result else None
 
             labelme_item["imagePath"] = file.get("filename", "")
             labelme_item["imageData"] = image_to_base64(file.get("path"))
@@ -560,21 +605,36 @@ class Converter:
             file = sample.get("file", {})
             
             # skip invalid data
-            annotated_result = json.loads(data.get("result"))
+            raw_result = data.get("result")
+            if not raw_result:
+                continue
+            annotated_result = json.loads(raw_result)
             if not annotated_result:
                 continue
 
-            image_path = settings.MEDIA_ROOT.joinpath(file.get("path").lstrip("/"))
-            file_basename = os.path.splitext(file.get("filename", ""))[0]
-            file_name = out_data_dir.joinpath(f"{file_basename}.txt")
             image_width = annotated_result.get("width", 0)
             image_height = annotated_result.get("height", 0)
             rotate = annotated_result.get("rotate", 0)
-            
-            with Image.open(image_path) as img:
-                if rotate:
-                    img = img.rotate(rotate, expand=True)
-                image_width, image_height = img.size
+
+            # Try to read actual image dimensions (supports local and S3/MinIO remote storage)
+            file_path = file.get("path", "")
+            w, h = _open_image_for_export(file_path, rotate)
+            if w and h:
+                image_width, image_height = w, h
+            elif image_width == 0 or image_height == 0:
+                logger.warning(
+                    "Skipping sample {} (file: {}): cannot read image dimensions",
+                    sample.get("id"), file.get("filename", ""),
+                )
+                continue
+            else:
+                logger.warning(
+                    "Using stored dimensions ({}x{}) for sample {} (file: {})",
+                    image_width, image_height, sample.get("id"), file.get("filename", ""),
+                )
+
+            file_basename = os.path.splitext(file.get("filename", ""))[0]
+            file_name = out_data_dir.joinpath(f"{file_basename}.txt")
             
             with file_name.open("a") as outfile:
                 if rotate:
@@ -662,7 +722,8 @@ class Converter:
             rows = []
             
             # skip invalid data
-            annotated_result = json.loads(data.get("result"))
+            raw_result = data.get("result")
+            annotated_result = json.loads(raw_result) if raw_result else None
             if not annotated_result:
                 continue
 
@@ -758,7 +819,8 @@ class Converter:
             sample_item = ET.SubElement(root, "sample")
             
             # skip invalid data
-            annotated_result = json.loads(data.get("result"))
+            raw_result = data.get("result")
+            annotated_result = json.loads(raw_result) if raw_result else None
             result = ET.SubElement(sample_item, "result")
             if annotated_result and sample.get("state") == "SKIPPED":
                 ET.SubElement(result, "valid").text = "False"
@@ -836,7 +898,8 @@ class Converter:
             file = sample.get("file", {})
             
             # skip invalid data
-            annotated_result = json.loads(data.get("result"))
+            raw_result = data.get("result")
+            annotated_result = json.loads(raw_result) if raw_result else None
             if not annotated_result:
                 continue
 

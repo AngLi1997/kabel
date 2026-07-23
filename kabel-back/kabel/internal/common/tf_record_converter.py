@@ -40,7 +40,8 @@ class TF_record_converter:
             file = sample.get("file", {})
             
             # skip invalid data
-            annotated_result = json.loads(data.get("result"))
+            raw_result = data.get("result")
+            annotated_result = json.loads(raw_result) if raw_result else None
             if sample.get("state") == "SKIPPED" or not annotated_result:
                 continue
             
@@ -49,15 +50,19 @@ class TF_record_converter:
             rotate = annotated_result.get("rotate", 0)
             
             _, file_extension = os.path.splitext(file.get("filename", ""))
-            
-            file_full_path = settings.MEDIA_ROOT.joinpath(file.get("path").lstrip("/"))
-            
-            with Image.open(file_full_path) as img:
-                if rotate:
-                    img = img.rotate(rotate)
 
-                image_width, image_height = img.size
-                encoded_image_data = img.tobytes()
+            # Open image via storage backend (supports local and S3/MinIO remote storage)
+            from kabel.internal.common.converter import _open_image_for_export
+
+            file_path = file.get("path", "")
+            w, h, img = _open_image_for_export(file_path, rotate, return_image=True)
+            if img is None:
+                # Cannot retrieve image; skip this sample (tobytes() requires the actual image)
+                continue
+
+            image_width, image_height = w, h
+            encoded_image_data = img.tobytes()
+            img.close()
             
             xmins = []
             xmaxs = []

@@ -579,10 +579,11 @@ def _run_export_sync(
         for sample in samples:
             file_dict = {}
             if sample.file:
+                att_resp = build_attachment_response(sample.file)
                 file_dict = {
                     "id": sample.file.id,
                     "filename": sample.file.filename,
-                    "url": sample.file.url,
+                    "url": att_resp.url if att_resp else "",
                     "path": sample.file.path if hasattr(sample.file, "path") else "",
                 }
             data.append(
@@ -659,10 +660,11 @@ async def export(
     for sample in samples:
         file_dict = {}
         if sample.file:
+            att_resp = build_attachment_response(sample.file)
             file_dict = {
                 "id": sample.file.id,
                 "filename": sample.file.filename,
-                "url": sample.file.url,
+                "url": att_resp.url if att_resp else "",
                 "path": sample.file.path if hasattr(sample.file, "path") else "",
             }
         data.append(
