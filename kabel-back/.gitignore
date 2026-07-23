@@ -1,0 +1,57 @@
+# Python caches and environments
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+env/
+__pypackages__/
+
+# Tests, type checks and coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+test.db
+
+# Packaging
+build/
+dist/
+sdist/
+wheels/
+*.egg
+*.egg-info/
+.eggs/
+
+# Local configuration
+.env
+.env.*
+!.env.example
+.mcp.json
+
+# Runtime data and generated frontend bundle
+data/
+exports/
+frontend/
+logs/
+*.db
+*.sqlite
+*.sqlite3
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
+.history/
+*.swp
+*~
+
+# Keep the reproducible dependency lock.
+!uv.lock

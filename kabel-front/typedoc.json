@@ -1,0 +1,13 @@
+{
+  "entryPoints": ["packages/*"],
+  "name": "Kabel Kit",
+  "navigationLinks": {
+    "Kabel": "https://opendatalab.github.io/Kabel/",
+    "OpenDataLab": "https://opendatalab.com/"
+  },
+  "entryPointStrategy": "packages",
+  "includeVersion": true
+
+  // Potentially useful for debugging
+  // "logLevel": "Verbose"
+}

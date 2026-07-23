@@ -1,0 +1,107 @@
+# -----------------------------------------------------------------------------
+# Operating systems
+# -----------------------------------------------------------------------------
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
+
+# -----------------------------------------------------------------------------
+# Editors and local tooling
+# -----------------------------------------------------------------------------
+.idea/
+.vscode/
+.history/
+*.swp
+*.swo
+*~
+.mcp.json
+
+# -----------------------------------------------------------------------------
+# Local configuration and secrets
+# -----------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+!**/.env.example
+*.local
+
+# -----------------------------------------------------------------------------
+# Python
+# -----------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+.venv/
+venv/
+env/
+ENV/
+__pypackages__/
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.pytype/
+.hypothesis/
+.tox/
+.nox/
+
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+*.egg
+*.egg-info/
+.eggs/
+build/
+dist/
+sdist/
+wheels/
+
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# -----------------------------------------------------------------------------
+# Node.js / pnpm / Vite
+# -----------------------------------------------------------------------------
+node_modules/
+.pnpm-store/
+.npm/
+.yarn/
+
+coverage/
+es/
+.vite/
+.turbo/
+*.tsbuildinfo
+vite.config.*.timestamp-*
+
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# -----------------------------------------------------------------------------
+# Kabel runtime and generated artifacts
+# -----------------------------------------------------------------------------
+kabel-back/exports/
+kabel-back/frontend/
+kabel-back/data/
+kabel-back/logs/
+kabel-front/packages/*/temp/
+
+tmp/
+temp/
+*.tmp
+*.log
+
+# Dependency lock files are intentionally committed for reproducible builds.
+!kabel-back/uv.lock
+!kabel-front/pnpm-lock.yaml
