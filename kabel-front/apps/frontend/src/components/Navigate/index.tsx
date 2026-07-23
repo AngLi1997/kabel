@@ -1,4 +1,4 @@
-import Icon, { BellOutlined, DatabaseOutlined, PoweroffOutlined } from '@ant-design/icons';
+import Icon, { DatabaseOutlined, PoweroffOutlined } from '@ant-design/icons';
 import { FlexLayout } from '@kabel/components-react';
 import { Button, Divider, Dropdown, Popover, Tag } from 'antd';
 import { Link, useMatch, useNavigate } from 'react-router-dom';
@@ -81,17 +81,6 @@ const Homepage = () => {
             {t('dataSources')}
           </Button>
         </Link>
-        <Button
-          type="link"
-          data-wiz="documentation"
-          icon={<BellOutlined />}
-          href={`https://opendatalab.github.io/Kabel/${i18n.language.startsWith('en') ? 'en/' : ''}guide/introduction`}
-          style={{ color: 'rgba(0, 0, 0, 0.85)' }}
-          target="_blank"
-          rel="noreferrer"
-        >
-          {t('documentation')}
-        </Button>
         <LanguageSwitcher />
         <Dropdown
           trigger={['click']}

@@ -47,14 +47,15 @@ async def task_ws_endpoint(
     client_id = f"task_{task_id}"
 
     async def sync_peers():
-        connections = sampleConnectionManager.active_connections
-        current_connections = connections.get(client_id, {})
-        sample_payload = get_task_sample_connection_payloads(
-            current_connections.values()
-        )
+        def current_payload():
+            connections = sampleConnectionManager.active_connections
+            current_connections = connections.get(client_id, {})
+            return get_task_sample_connection_payloads(current_connections.values())
 
-        await sampleConnectionManager.send_message(
-            client_id=client_id, message=sample_payload
+        await sampleConnectionManager.send_coalesced(
+            client_id=client_id,
+            coalesce_key="peers",
+            message_factory=current_payload,
         )
 
     connection = None

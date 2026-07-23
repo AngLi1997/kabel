@@ -114,3 +114,47 @@ def test_failed_connection_does_not_block_other_users():
         await manager.disconnect("task_1", healthy)
 
     asyncio.run(run())
+
+
+def test_bursty_presence_changes_are_coalesced():
+    async def run():
+        manager = ConnectionManager()
+        sockets = []
+        factory_calls = 0
+
+        for sample_id in range(1, 21):
+            websocket = FakeWebSocket()
+            sockets.append(websocket)
+            await manager.connect(
+                "task_1",
+                websocket,
+                data=SimpleNamespace(sample_id=sample_id, username=str(sample_id)),
+            )
+
+        def current_presence():
+            nonlocal factory_calls
+            factory_calls += 1
+            return Message(type=MessageType.PEERS, data=[])
+
+        await asyncio.gather(
+            *(
+                manager.send_coalesced(
+                    "task_1",
+                    "peers",
+                    current_presence,
+                    delay=0.01,
+                )
+                for _ in range(20)
+            )
+        )
+
+        assert factory_calls == 1
+        assert all(
+            websocket.messages == [{"type": "peers", "data": []}]
+            for websocket in sockets
+        )
+
+        for websocket in sockets:
+            await manager.disconnect("task_1", websocket)
+
+    asyncio.run(run())

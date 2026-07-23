@@ -42,6 +42,8 @@ class ConnectionData:
 class ConnectionManager:
     def __init__(self):
         self.active_connections: Dict[str, Dict[str, ConnectionData]] = {}
+        self._coalesced_tasks: Dict[tuple[str, str], asyncio.Task] = {}
+        self._coalesced_versions: Dict[tuple[str, str], int] = {}
 
     def _get_connection(
         self, client_id: str, connection_id: uuid.UUID | str
@@ -177,3 +179,52 @@ class ConnectionManager:
                 for connection in connections
             )
         )
+
+    async def send_coalesced(
+        self,
+        client_id: str,
+        coalesce_key: str,
+        message_factory: Callable[[], Message],
+        delay: float = 0.02,
+    ):
+        """Merge a burst of equivalent broadcasts into one current snapshot.
+
+        Presence changes often arrive together when many users enter a task or
+        switch samples at the same time. Broadcasting the full peer list for
+        every individual change creates O(n²) messages. This method waits for
+        the short burst to settle and sends the latest snapshot once.
+        """
+        key = (client_id, coalesce_key)
+        self._coalesced_versions[key] = self._coalesced_versions.get(key, 0) + 1
+
+        task = self._coalesced_tasks.get(key)
+        if task is None or task.done():
+            task = asyncio.create_task(
+                self._run_coalesced(client_id, key, message_factory, delay)
+            )
+            self._coalesced_tasks[key] = task
+
+        await task
+
+    async def _run_coalesced(
+        self,
+        client_id: str,
+        key: tuple[str, str],
+        message_factory: Callable[[], Message],
+        delay: float,
+    ):
+        current_task = asyncio.current_task()
+        try:
+            while True:
+                await asyncio.sleep(delay)
+                version = self._coalesced_versions[key]
+                await self.send_message(
+                    client_id=client_id,
+                    message=message_factory(),
+                )
+                if self._coalesced_versions.get(key) == version:
+                    break
+        finally:
+            if self._coalesced_tasks.get(key) is current_task:
+                self._coalesced_tasks.pop(key, None)
+                self._coalesced_versions.pop(key, None)

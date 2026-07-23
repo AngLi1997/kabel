@@ -6,6 +6,7 @@ from loguru import logger
 from sqlalchemy.orm import Session
 from pydantic import ValidationError
 from fastapi import HTTPException, WebSocket, status, Depends, Request, Response
+from starlette.concurrency import run_in_threadpool
 
 from kabel.internal.domain.models.user import User
 from kabel.internal.common import db as db_module
@@ -68,14 +69,16 @@ def get_current_user(
     return user
 
 
-async def verify_ws_token(websocket: WebSocket, db: Session = Depends(db_module.get_db)):
+async def verify_ws_token(
+    websocket: WebSocket, db: Session = Depends(db_module.get_db)
+):
     try:
-        token = websocket.query_params.get('token')
-        
+        token = websocket.query_params.get("token")
+
         if not token:
             await websocket.close(code=4001, reason="Missing authentication token")
             raise HTTPException(status_code=401, detail="Missing authentication token")
-            
+
         payload = jwt.decode(
             token,
             settings.PASSWORD_SECRET_KEY,
@@ -84,14 +87,18 @@ async def verify_ws_token(websocket: WebSocket, db: Session = Depends(db_module.
         )
 
         token_data = AccessToken(**payload)
-        user = crud_user.get(db, id=token_data.id)
-        
+        user = await run_in_threadpool(
+            crud_user.get,
+            db,
+            id=token_data.id,
+        )
+
         if not user:
             await websocket.close(code=4002, reason="User not found")
             raise HTTPException(status_code=401, detail="User not found")
-        
+
         return user
-        
+
     except jwt.JWTError as e:
         logger.error(f"WebSocket authentication error: {str(e)}")
         await websocket.close(code=4003, reason="Invalid token")

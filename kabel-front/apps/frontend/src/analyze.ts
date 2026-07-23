@@ -63,15 +63,6 @@ function main() {
       },
       {
         name: 'click',
-        selector: '[data-wiz="documentation"]',
-        data: {
-          type: 'button_click',
-          resourceType: 'button',
-          resourceId: 'documentation',
-        },
-      },
-      {
-        name: 'click',
         selector: '[data-wiz="local-deploy-top-right"]',
         data: {
           type: 'button_click',
