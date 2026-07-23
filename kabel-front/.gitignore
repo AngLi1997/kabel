@@ -1,0 +1,43 @@
+# Dependencies and package-manager state
+node_modules/
+.pnpm-store/
+.npm/
+.yarn/
+
+# Build and test output
+dist/
+build/
+es/
+coverage/
+.vite/
+*.tsbuildinfo
+vite.config.*.timestamp-*
+packages/*/temp/
+packages/server/public/
+
+# Local configuration
+.env
+.env.*
+!.env.example
+*.local
+gptcommit.toml
+.script.test.js
+
+# Logs
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
+.history/
+.husky/prepare-commit-msg
+*.swp
+*~
+
+# Keep the workspace lock file for reproducible installs.
+!pnpm-lock.yaml

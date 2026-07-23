@@ -1,0 +1,60 @@
+from enum import Enum
+from typing import Annotated, List, Union
+from pydantic import BaseModel, Field
+
+from kabel.internal.domain.models.sample import SampleState
+
+
+class ExportType(str, Enum):
+    """
+    export samle result file type
+    """
+
+    JSON = "JSON"
+    MASK = "MASK"
+    COCO = "COCO"
+    YOLO = "YOLO"
+    CSV = "CSV"
+    XML = "XML"
+    LABEL_ME = "LABEL_ME"
+    TF_RECORD = "TF_RECORD"
+    PASCAL_VOC = "PASCAL_VOC"
+
+
+class CreateSampleCommand(BaseModel):
+    file_id: int = Field(
+        gt=0,
+        description="description: attachment file id",
+    )
+    data: Union[dict, None] = Field(
+        default=None,
+        description="description: annotation result of sample",
+    )
+
+
+class DeleteSampleCommand(BaseModel):
+    sample_ids: List[int] = Field(
+        min_length=1,
+        description="description: attachment file id",
+    )
+
+
+class PatchSampleCommand(BaseModel):
+    data: Union[dict, None] = Field(
+        default=None,
+        description="description: sample data, include result",
+    )
+    annotated_count: Union[int, None] = Field(
+        default=0, description="description: annotate result count"
+    )
+    state: Union[SampleState, None] = Field(
+        default=None,
+        description="description: sample file state, must be 'SKIPPED', 'NEW', or None",
+    )
+
+
+class ExportSampleCommand(BaseModel):
+    sample_ids: Union[List[Annotated[int, Field(gt=0)]], None] = Field(
+        min_length=1,
+        description="description: sample id",
+    )
