@@ -8,7 +8,7 @@
   "version": "5.11.1",
   "scripts": {
     "prepare": "husky install",
-    "dev": "pnpm build && pnpm --filter @kabel/frontend start",
+    "dev": "pnpm --filter @kabel/frontend start",
     "build": "pnpm --filter @kabel/interface --filter @kabel/i18n --filter @kabel/formatter --filter @kabel/image --filter @kabel/components-react --filter @kabel/image-annotator-react --filter @kabel/audio-react --filter @kabel/video-react --filter @kabel/audio-annotator-react --filter @kabel/video-annotator-react build",
     "clean": "pnpm --filter @kabel/interface --filter @kabel/i18n --filter @kabel/formatter --filter @kabel/image --filter @kabel/components-react --filter @kabel/image-annotator-react --filter @kabel/audio-react --filter @kabel/video-react --filter @kabel/audio-annotator-react --filter @kabel/video-annotator-react clean",
     "build:frontend": "pnpm --filter @kabel/frontend build",
