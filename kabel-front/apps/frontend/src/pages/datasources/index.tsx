@@ -139,18 +139,6 @@ const DataSources = () => {
           {t('createDataSource')}
         </Button>
       </Header>
-      <Alert
-        style={{ marginBottom: '1rem' }}
-        type="info"
-        message={
-          <div>
-            {t('s3VizTip')}{' '}
-            <a href="https://github.com/opendatalab/vis3#features" target="_blank" rel="noreferrer">
-              vis3
-            </a>
-          </div>
-        }
-      />
       <FlexLayout.Content scroll flex="column">
         <Table
           dataSource={data?.data ?? []}

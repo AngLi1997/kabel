@@ -13,6 +13,7 @@ import useMe from '@/hooks/useMe';
 import commonController from '../../../../utils/common';
 import ExportPortal from '../../../../components/ExportPortal';
 import CollaboratorPortal from '../CollaboratorModal';
+import LabelStatisticsModal from '../LabelStatisticsModal';
 
 const Circle = styled.div<{
   color: string;
@@ -98,6 +99,7 @@ const Statistical = () => {
             {t('taskConfig')}
           </Button>
         )}
+        <LabelStatisticsModal taskId={+taskId!} />
         <ExportPortal taskId={+taskId!} mediaType={mediaType} tools={taskData?.config?.tools}>
           <Button type="text" icon={<UploadOutlined />}>
             {t('export')}

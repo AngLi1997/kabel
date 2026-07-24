@@ -266,6 +266,23 @@ export interface OkRespTaskResponseWithStatics {
   data: TaskResponseWithStatics;
 }
 
+export type LabelStatisticScope = 'common' | 'tool' | 'tag';
+
+export interface LabelStatistic {
+  scope: LabelStatisticScope;
+  tool?: string | null;
+  category?: string | null;
+  label: string;
+  value: string;
+  color?: string | null;
+  count: number;
+}
+
+export interface LabelStatsResponse {
+  labels: LabelStatistic[];
+  total: number;
+}
+
 export interface PatchSampleCommand {
   /** Data description: sample data, include filename, file url, or result */
   data?: SampleData;

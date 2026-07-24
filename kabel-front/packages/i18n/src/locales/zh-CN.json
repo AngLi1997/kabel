@@ -409,6 +409,13 @@
   "batchAutoLabelStarted": "批量标注任务已开始",
   "batchAutoLabelCompleted": "批量标注完成，成功 {{success}} 个，失败 {{failed}} 个",
   "batchAutoLabelNoSamples": "没有未标注的样本",
-  "s3VizTip": "如果想要更强大的S3数据可视化，试试",
+  "viewAnnotationStatistics": "查看标注统计",
+  "annotationStatistics": "标注统计",
+  "labelSource": "标签来源",
+  "markedCount": "已标记数量",
+  "annotationStatisticsSummary": "共 {{labels}} 个标签，累计已标记 {{count}} 次",
+  "noConfiguredLabels": "当前任务未配置可统计的标签",
+  "loadAnnotationStatisticsFailed": "标注统计加载失败",
+  "retryAnnotationStatistics": "重新加载",
   "uploadSuccessCount": "个，"
 }

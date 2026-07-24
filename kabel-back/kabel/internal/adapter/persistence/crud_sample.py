@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, Iterator, List, Union
 
 
 from sqlalchemy import case, func
@@ -154,6 +154,21 @@ def has_state(db: Session, task_id: int, state: str) -> bool:
         .first()
         is not None
     )
+
+
+def iter_done_annotation_data(db: Session, task_id: int) -> Iterator[str]:
+    query = (
+        db.query(TaskSample.data)
+        .filter(
+            TaskSample.task_id == task_id,
+            TaskSample.deleted_at == None,
+            TaskSample.state == SampleState.DONE.value,
+        )
+        .yield_per(500)
+    )
+
+    for (data,) in query:
+        yield data
 
 
 def statics(

@@ -14,6 +14,7 @@ from kabel.internal.common.error_code import KabelException
 from kabel.internal.domain.models.user import User
 from kabel.internal.dependencies.user import get_current_user
 from kabel.internal.application.service import sample as service
+from kabel.internal.application.service import label_stats as label_stats_service
 from kabel.internal.application.service import auto_label as auto_label_service
 from kabel.internal.application.command.auto_label import (
     AutoLabelCommand,
@@ -31,6 +32,7 @@ from kabel.internal.application.response.base import CommonDataResp
 from kabel.internal.application.response.base import OkRespWithMeta
 from kabel.internal.application.response.sample import SampleResponse
 from kabel.internal.application.response.sample import CreateSampleResponse
+from kabel.internal.application.response.label_stats import LabelStatsResponse
 from kabel.internal.application.response.auto_label import (
     AutoLabelResponse,
     AutoLabelJobResponse,
@@ -128,6 +130,31 @@ async def list_by(
     # response
     meta_data = MetaData(total=total, page=page, size=len(data))
     return OkRespWithMeta[List[SampleResponse]](meta_data=meta_data, data=data)
+
+
+@router.get(
+    "/{task_id}/samples/label_stats",
+    response_model=OkResp[LabelStatsResponse],
+    status_code=status.HTTP_200_OK,
+)
+async def get_label_stats(
+    task_id: int,
+    authorization: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(db_module.get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Get annotation label statistics for a task.
+    """
+
+    data = await run_in_threadpool(
+        label_stats_service.get,
+        db=db,
+        task_id=task_id,
+        current_user=current_user,
+    )
+
+    return OkResp[LabelStatsResponse](data=data)
 
 
 @router.get(

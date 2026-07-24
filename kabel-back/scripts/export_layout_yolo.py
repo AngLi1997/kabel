@@ -49,7 +49,7 @@ def parse_args() -> argparse.Namespace:
         "--port", type=int, default=int(os.getenv("KABEL_DB_PORT", "13306"))
     )
     parser.add_argument(
-        "--database", default=os.getenv("KABEL_DB_NAME", "kabel")
+        "--database", default=os.getenv("KABEL_DB_NAME", "labelu")
     )
     parser.add_argument("--user", default=os.getenv("KABEL_DB_USER", "root"))
     parser.add_argument(

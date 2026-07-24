@@ -20,6 +20,7 @@ import {
   type SampleData,
   type SampleListResponse,
   type SampleResponse,
+  type LabelStatsResponse,
   type UpdateApiV1TasksTaskIdSamplesSampleIdPatchParams,
 } from '../types';
 
@@ -193,4 +194,8 @@ export async function getPreSample({
   task_id,
 }: GetPreApiV1TasksTaskIdSamplesSampleIdPreGetParams): Promise<OkRespSampleResponse> {
   return await request.get(`/v1/tasks/${task_id}/samples/${sample_id}/pre`);
+}
+
+export async function getLabelStats(taskId: number): Promise<{ data: LabelStatsResponse }> {
+  return await request.get(`/v1/tasks/${taskId}/samples/label_stats`);
 }
